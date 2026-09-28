@@ -38,11 +38,13 @@ try {
         param($FilePath, $Verb, $WindowStyle, [switch]$Wait, [switch]$PassThru, $ArgumentList)
         $script:Launch = $PSBoundParameters
         if ($script:CancelElevation) { throw 'Simulated UAC cancellation' }
-        return [pscustomobject]@{ ExitCode = 37 }
+        $fakeProcess = [pscustomobject]@{ ExitCode = 37; HasExited = $true; Handle = 0 }
+        $fakeProcess | Add-Member ScriptMethod WaitForExit { }
+        return $fakeProcess
     }
     $script:CancelElevation = $false
     if ((Invoke-ElevatedSetup $pathWithSpecialCharacters) -ne 37) { throw 'Child exit code was lost.' }
-    if ($script:Launch.Verb -ne 'RunAs' -or $script:Launch.WindowStyle -ne 'Hidden' -or -not $script:Launch.Wait) {
+    if ($script:Launch.Verb -ne 'RunAs' -or $script:Launch.WindowStyle -ne 'Hidden' -or $script:Launch.ContainsKey('Wait')) {
         throw 'Unexpected elevation launch options.'
     }
     $script:CancelElevation = $true
@@ -51,6 +53,21 @@ try {
         $cancelled = $_.Exception.Message -like '*Administrator access was cancelled*'
     }
     if (-not $cancelled) { throw 'Cancellation message missing.' }
+
+    $logFixture = [IO.Path]::GetTempFileName()
+    try {
+        [IO.File]::WriteAllText($logFixture, "Transcript header`n[12:00:00] [SUCCESS] Java checked.`n[12:00:01] [SUCCESS] Sub")
+        $lineCount = 0
+        $first = Show-SetupLog $logFixture ([ref]$lineCount) 6>&1 | Out-String
+        if ($first -notmatch 'Java checked' -or $first -match 'Transcript header|Sub') { throw 'Live log filtering or partial-line handling failed.' }
+        $second = Show-SetupLog $logFixture ([ref]$lineCount) 6>&1 | Out-String
+        if ($second.Trim()) { throw 'Live log repeated a completed line.' }
+        [IO.File]::AppendAllText($logFixture, "lime checked.`n[12:00:02] [ERROR] Next step failed.`n")
+        $third = Show-SetupLog $logFixture ([ref]$lineCount) 6>&1 | Out-String
+        if ($third -notmatch 'Sublime checked' -or $third -notmatch 'Next step failed' -or $third -match 'Java checked') {
+            throw 'Live log did not relay completed and error messages exactly once.'
+        }
+    } finally { Remove-Item -LiteralPath $logFixture -Force }
 
     function Test-Administrator { return $false }
     function Invoke-ElevatedSetup { param($ScriptPath); $script:ElevationCalls++; $script:ElevatedPath = $ScriptPath; return 37 }
@@ -68,7 +85,12 @@ try {
     $blocked = $false
     try { Main } catch { $blocked = $_.Exception.Message -like '*did not receive administrator access*' }
     if (-not $blocked -or $script:ElevationCalls -ne 1) { throw 'Elevation recursion was not blocked.' }
-    Write-Host 'PASS: syntax, architecture detection, elevation quoting/options, cancellation, child status, preview, recursion guard.'
+    function Test-SetupNetwork { $script:NetworkCalls++ }
+    $script:NetworkCalls = 0
+    $DiagnoseNetwork = $true
+    Main
+    if ($script:NetworkCalls -ne 1 -or $script:ElevationCalls -ne 1) { throw 'Network diagnostics requested elevation or did not run.' }
+    Write-Host 'PASS: syntax, architecture, elevation, cancellation/status, live log relay, preview, recursion guard.'
 } finally {
     $env:PROCESSOR_ARCHITEW6432 = $previousNative
     $env:PROCESSOR_ARCHITECTURE = $previousProcess

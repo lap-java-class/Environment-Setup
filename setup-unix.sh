@@ -7,7 +7,11 @@ ROOT="$HOME/.local/share/java-sublime-setup"
 WORK=''
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-download() { curl --fail --location --retry 3 --connect-timeout 30 --max-time 900 --proto '=https' --proto-redir '=https' --show-error --silent "$1" -o "$2"; }
+success() { printf '[%s] [SUCCESS] %s\n' "$(date +%H:%M:%S)" "$*"; }
+download() {
+    curl --fail --location --retry 3 --connect-timeout 30 --max-time 900 --proto '=https' --proto-redir '=https' --show-error --silent "$1" -o "$2" || return $?
+    success "Downloaded ${2##*/}."
+}
 need() { command -v "$1" >/dev/null 2>&1 || fail "Missing command '$1'. See the prerequisites in README.md."; }
 
 detect_platform() {
@@ -55,7 +59,7 @@ check_jdk() {
     "$jdk/bin/javac" -d "$WORK" "$WORK/SetupCheck.java"
     result=$("$jdk/bin/java" -cp "$WORK" SetupCheck)
     [[ "$result" == JAVA_SETUP_OK ]] || fail 'The Java test program did not run correctly.'
-    printf 'Verified %s by compiling and running a program.\n' "$version"
+    success "Verified $version by compiling and running a program."
 }
 
 install_java() {
@@ -76,8 +80,10 @@ install_java() {
             actual=$(sha256sum "$WORK/jdk.tar.gz" | awk '{print $1}')
         fi
         [[ "$actual" == "$expected" ]] || fail 'JDK checksum mismatch.'
+        success 'Java download checksum verified.'
         mkdir "$WORK/jdk"
         tar -xzf "$WORK/jdk.tar.gz" -C "$WORK/jdk"
+        success 'Java archive extracted.'
         local candidates=("$WORK/jdk"/*)
         [[ ${#candidates[@]} == 1 && -d "${candidates[0]}" ]] || fail 'Unexpected JDK archive layout.'
         candidate=${candidates[0]}
@@ -85,6 +91,7 @@ install_java() {
         check_jdk "$candidate"
         mkdir -p "$ROOT/jdks"
         mv "${candidates[0]}" "$destination"
+        success "Java files installed: $destination"
     fi
     JAVA_HOME=$destination
     [[ "$OS" != mac ]] || JAVA_HOME="$destination/Contents/Home"
@@ -102,6 +109,7 @@ install_sublime() {
             ditto -xk "$WORK/sublime.zip" "$WORK/sublime"
             codesign --verify --deep --strict "$WORK/sublime/Sublime Text.app"
             spctl --assess --type execute "$WORK/sublime/Sublime Text.app"
+            success 'Sublime Text code signature and Gatekeeper assessment passed.'
             mkdir -p "$HOME/Applications"
             mv "$WORK/sublime/Sublime Text.app" "$HOME/Applications/Sublime Text.app"
         fi
@@ -123,6 +131,7 @@ install_sublime() {
             mkdir -m 700 "$WORK/gnupg"
             gpg --homedir "$WORK/gnupg" --batch --import "$WORK/sublime-key"
             gpg --homedir "$WORK/gnupg" --batch --verify "$WORK/sublime.tar.xz.asc" "$WORK/sublime.tar.xz"
+            success 'Sublime Text download signature verified.'
             mkdir "$WORK/sublime"
             tar -xJf "$WORK/sublime.tar.xz" -C "$WORK/sublime"
             [[ -x "$WORK/sublime/sublime_text/sublime_text" ]] || fail 'Unexpected Sublime archive layout.'
@@ -221,12 +230,17 @@ main() {
     trap cleanup EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
+    success "Device and prerequisites checked: $OS / $ARCH; shell: $SHELL_NAME."
     printf '[1/3] Downloading and checking Java...\n'
     install_java
+    success 'Step 1/3 complete: Java 21 is installed and tested.'
     printf '[2/3] Installing Sublime Text...\n'
     install_sublime
+    success 'Step 2/3 complete: Sublime Text is available and its version command passed.'
     printf '[3/3] Configuring shell startup files...\n'
     configure_shell
+    success 'Step 3/3 complete: JAVA_HOME and PATH configured; Java command location checked.'
+    success 'All setup steps completed.'
     printf 'Setup complete. Close and reopen Terminal, then run java -version and javac -version.\nLog: %s\n' "$LOG"
 }
 

@@ -103,13 +103,30 @@ Here is what happens:
 5. Windows asks for administrator access. Approve the prompt, or supply an
    administrator's credentials if your account requires them.
 6. Installation runs in an elevated background process. Keep your original
-   Command Prompt window open; it waits and reports success or failure.
+   Command Prompt window open; it displays live progress and a timestamped
+   `[SUCCESS]` message after each completed step, followed by success or failure.
 7. The detailed installation log is saved under
    `C:\ProgramData\JavaSublimeSetup\logs` on a typical Windows installation.
 
-The background installation may take several minutes. To watch detailed output
-directly, open Command Prompt using **Run as administrator** before running the
-same command. Preview mode never requests administrator access.
+The background installation may take several minutes. Its progress messages
+appear automatically in your original window; the full transcript remains in
+the log file. Each run has a unique log, so another run's messages are not mixed
+into your terminal. To see all tool output directly, open Command Prompt using
+**Run as administrator** before running the same command. Preview mode never
+requests administrator access.
+
+For example, a successful Windows run includes these messages (with timestamps):
+
+```text
+[SUCCESS] Step 1/4 complete: Java 21 is installed and tested.
+[SUCCESS] Step 2/4 complete: Sublime Text executable is present.
+[SUCCESS] Step 3/4 complete: system JAVA_HOME and PATH configured.
+[SUCCESS] Step 4/4 complete: this setup process resolves java to the selected JDK.
+```
+
+Downloads, checksum/signature checks, and Java test runs also report success as
+they finish. Reused software is identified. A failed step produces an error and
+does not receive a step-success message; later steps do not run.
 
 `-ExecutionPolicy Bypass` applies only to the launched PowerShell process; it
 does not permanently change the computer's policy. An organization's policy can
@@ -193,7 +210,8 @@ You can run this from any folder. It downloads the script to your home folder,
 then runs it only after a successful download. It does not download the whole
 repository. Running the command again replaces the previously downloaded script.
 
-Wait for the three numbered stages to finish. Java goes into
+Wait for the three numbered stages to finish. Each completed stage prints a
+timestamped `[SUCCESS]` message to Terminal and the setup log. Java goes into
 `~/.local/share/java-sublime-setup/jdks`, where `~` means your home folder.
 
 - **macOS:** Sublime goes into `~/Applications`. A copy already there or in
@@ -401,6 +419,52 @@ The file name and class name must match exactly, including capital letters.
 
 ## Troubleshooting
 
+### Windows: connection resets or "remote name could not be resolved"
+
+These messages describe network failures. "Could not be resolved" means the
+hostname could not be translated into an IP address; it does not mean the laptop
+is too slow. A fast speed test also does not establish that a particular server
+is reachable. A connection reset can have several causes, including routing,
+VPN/proxy behavior, security software, or a remote server. The error alone does
+not prove censorship or identify which component interrupted the connection.
+
+The initial script comes from `raw.githubusercontent.com`. Java downloads use
+Adoptium and GitHub release servers, while Sublime uses `download.sublimetext.com`.
+Successfully downloading the script does not prove those other servers work.
+
+The Windows installer uses `curl.exe` for metadata and installer downloads. It
+retries transient failures up to five times with increasing waits, and logs the
+server, curl exit code, and HTTP status. Each attempt restarts its download;
+failed partial files are never installed. A working Java installation from an
+earlier attempt can be reused. Certificate, checksum, and publisher checks remain
+enabled. Persistent DNS failures still need the connection problem resolved.
+
+After downloading the updated script, run this in **Command Prompt** on the
+affected laptop:
+
+```cmd
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\java-sublime-setup.ps1" -DiagnoseNetwork
+```
+
+To download the updated script and run diagnostics in one command:
+
+```cmd
+curl.exe -fL --retry 3 "https://raw.githubusercontent.com/lap-java-class/Environment-Setup/main/setup-windows.ps1" -o "%TEMP%\java-sublime-setup.ps1" && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TEMP%\java-sublime-setup.ps1" -DiagnoseNetwork
+```
+
+This mode makes small network requests only. It does not install software,
+request administrator access, or change DNS/proxy settings. It prints status
+codes for the script host, Adoptium, GitHub, and Sublime. A successful small
+request does not prove a large download or redirected asset CDN will work.
+When testing a VPN, establish the connection first and keep it unchanged for
+the entire run. Compare results using another connection, such as a mobile
+hotspot, if available. Share the diagnostic output to narrow down the cause.
+
+If a log says Java compiled successfully but Sublime failed, the Java files may
+already be installed. The environment configuration happens after the Sublime
+step, so `java` on PATH may not have been updated yet. Finish a successful setup
+before relying on its final environment configuration.
+
 | Problem | What to do |
 | --- | --- |
 | Script/file not found | Copy the complete curl command, including the output path. If using the ZIP alternative, extract it first and use `dir` or `ls` to check your folder. |
@@ -483,6 +547,7 @@ Maintainers can run non-installing checks:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\check-windows.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\check-downloads.ps1
 ```
 
 ```bash
@@ -492,7 +557,9 @@ bash tests/check-unix.sh
 
 These checks validate parsing, platform rejection/detection, environment
 configuration, stdin execution, preview mode, and mocked Windows elevation
-(including path quoting, cancellation, and exit codes). They do not replace testing downloads,
+(including path quoting, cancellation, and exit codes), and simulated download
+failures (DNS errors, connection resets, HTTP errors, and incomplete responses).
+They do not replace testing downloads,
 native installers, permissions, and application launch on Windows, Intel Mac,
 Apple Silicon Mac, and Linux x64/ARM64. Before publishing a release, run complete
 installations on disposable target machines, including a second run, an existing
