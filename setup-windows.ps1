@@ -209,6 +209,20 @@ function Test-Jdk([string]$JdkPath, [string]$WorkPath) {
     Write-SetupMessage SUCCESS "Verified $version by compiling and running a program."
 }
 
+function Assert-JavaCommandResolution([string]$JavaBin) {
+    foreach ($name in @('java.exe', 'javac.exe')) {
+        # Get-Command can return multiple applications with the same name.
+        # Only the first match determines which executable this process runs.
+        $command = Get-Command -Name $name -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($null -eq $command) { throw "$name was not found on PATH." }
+        $resolved = $command.Source
+        $expected = Join-Path $JavaBin $name
+        if ($resolved -ine $expected) { throw "Another $name takes precedence: $resolved. Expected: $expected" }
+        Write-SetupMessage SUCCESS "$name resolves to $resolved"
+    }
+}
+
 function Main {
     if ($env:OS -ne 'Windows_NT') { throw 'Use setup-unix.sh on macOS/Linux.' }
     if ($DiagnoseNetwork) { Test-SetupNetwork; return }
@@ -314,8 +328,7 @@ function Main {
         $env:Path = "$javaBin;$sublimeDir;$env:Path"
         Write-SetupMessage SUCCESS 'Step 3/4 complete: system JAVA_HOME and PATH configured.'
         Write-SetupMessage INFO '[4/4] Checking Java command resolution...'
-        $resolved = (Get-Command java.exe -CommandType Application).Source
-        if ($resolved -ine (Join-Path $javaBin 'java.exe')) { throw "Another Java command takes precedence: $resolved" }
+        Assert-JavaCommandResolution $javaBin
         Write-SetupMessage SUCCESS 'Step 4/4 complete: this setup process resolves java to the selected JDK.'
         Write-SetupMessage SUCCESS "Setup complete. JAVA_HOME=$jdkPath"
         Write-SetupMessage INFO 'Sign out of Windows and sign back in to refresh environment variables in all apps.'

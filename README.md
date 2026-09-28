@@ -318,6 +318,10 @@ echo %JAVA_HOME%
 where java
 ```
 
+`where java` can list several Java installations. That is normal: the selected
+JDK should appear first. Setup checks the first executable match for both
+`java.exe` and `javac.exe`; an older Java installation later in PATH is allowed.
+
 **macOS/Linux:**
 
 ```bash
@@ -548,6 +552,7 @@ Maintainers can run non-installing checks:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\check-windows.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\check-downloads.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\check-java-path.ps1
 ```
 
 ```bash
